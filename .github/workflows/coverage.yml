@@ -1,0 +1,90 @@
+name: coverage
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "**/*.rst"
+      - "CHANGES.txt"
+      - "LICENSE"
+      - "CITATION.cff"
+      - ".readthedocs.yaml"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "**/*.rst"
+      - "CHANGES.txt"
+      - "LICENSE"
+      - "CITATION.cff"
+      - ".readthedocs.yaml"
+
+permissions:
+  contents: read
+
+concurrency:
+  # PR runs share a group per PR (so stale pushes get cancelled); every push gets its own group.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Lets the Qlty upload authenticate with OIDC instead of a stored token.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+      - name: Install dependencies
+        run: |
+          # uv prefers wheels by default, matching pip's --prefer-binary.
+          uv pip install --system --group runtime --group test -e .
+      - name: Test with coverage
+        env:
+          COVERAGE_CORE: sysmon
+        run: pytest -n auto --cov=pysad --cov-report=lcov
+      - name: Upload to Coveralls
+        uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          file: coverage.lcov
+      - name: Upload to Qlty
+        # Forked PRs get no OIDC token, so upload only from this repo.
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: qltysh/qlty-action/coverage@c9b09987143d1e4ac955f4803c7bea742102feb5 # v2.4.0
+        with:
+          oidc: true
+          files: coverage.lcov
+
+  unpinned-314:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+      - name: Install unpinned dependencies
+        run: |
+          uv pip install --system -e ".[rrcf,slop,xStream,pandas]" --group test
+      - name: Test
+        run: pytest -n auto

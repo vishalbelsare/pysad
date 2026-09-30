@@ -1,24 +1,25 @@
+from __future__ import annotations
+
 from pysad.core.base_statistic import UnivariateStatistic
-from pysad.statistics.count_meter import CountMeter
-from pysad.statistics.sum_meter import SumMeter
-from pysad.statistics.sum_squares_meter import SumSquaresMeter
 
 
 class VarianceMeter(UnivariateStatistic):
-    """The statistic that keeps track of the variance of the values. The variance formula is: (sum_squares - (sum**2)/count)/count.
+    """The statistic that keeps track of the (population) variance of the values, using Welford's update.
 
-    Attrs:
-        sum_meter (pyod.statistics.SumMeter object): SumMeter object.
-        sum_squares_meter (pyod.statistics.SumSquaresMeter object): SumSquaresMeter object.
-        count_meter (pyod.statistics.CountMeter object): CountMeter object.
+    Welford's update tracks the mean and the sum of squared deviations from it, instead of the sum and the sum of squares, so the variance never comes out negative and keeps its precision on large values.
+
+    Attributes:
+        count (int): The number of values.
+        mean (float): The mean of the values.
+        m2 (float): The sum of squared deviations of the values from their mean.
     """
 
     def __init__(self):
-        self.sum_meter = SumMeter()
-        self.sum_squares_meter = SumSquaresMeter()
-        self.count_meter = CountMeter()
+        self.count = 0
+        self.mean = 0.0
+        self.m2 = 0.0
 
-    def update(self, num):
+    def update(self, num: float) -> VarianceMeter:
         """Updates the statistic with the value for a timestep.
 
         Args:
@@ -28,13 +29,15 @@ class VarianceMeter(UnivariateStatistic):
             object: self.
 
         """
-        self.sum_squares_meter.update(num)
-        self.count_meter.update(num)
-        self.sum_meter.update(num)
+        self.count += 1
+        delta = num - self.mean
+        self.mean = self.mean + delta / self.count
+        # The new mean lies between the old mean and num, so the increment is never negative.
+        self.m2 = self.m2 + delta * (num - self.mean)
 
         return self
 
-    def remove(self, num):
+    def remove(self, num: float) -> VarianceMeter:
         """Updates the statistic by removing particular value.
 
         Args:
@@ -44,22 +47,23 @@ class VarianceMeter(UnivariateStatistic):
             object: self.
 
         """
-        self.sum_squares_meter.remove(num)
-        self.sum_meter.remove(num)
-        self.count_meter.remove(num)
+        self.count -= 1
+        if self.count == 0:
+            self.mean = 0.0
+            self.m2 = 0.0
+            return self
+
+        delta = num - self.mean
+        self.mean = self.mean - delta / self.count
+        # Undoing an update can round below zero when the remaining values are (nearly) equal.
+        self.m2 = max(self.m2 - delta * (num - self.mean), 0.0)
 
         return self
 
-    def get(self):
-        """ Method to obtain the tracked statistic.
+    def get(self) -> float:
+        """Method to obtain the tracked statistic.
 
         Returns:
             float: The statistic.
         """
-        sum_squares = self.sum_squares_meter.get()
-        sum = self.sum_meter.get()
-        count = self.count_meter.get()
-
-        var = (sum_squares - (sum**2) / count) / count
-
-        return var
+        return self.m2 / self.count

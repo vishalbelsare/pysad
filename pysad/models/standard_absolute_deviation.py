@@ -7,21 +7,26 @@ from pysad.statistics.variance_meter import VarianceMeter
 class StandardAbsoluteDeviation(BaseModel):
     """The model that assigns the deviation from the mean (or median) and divides with the standard deviation. This model is based on the 3-Sigma rule described in :cite:`hochenbaum2017automatic`.
 
-        substracted_statistic (str): The statistic to be substracted for scoring. It is either "mean" or "median". (Default="mean").
+    This is a streaming standard-deviation score component, not the paper's
+    S-ESD method. It does not apply STL decomposition or generalized ESD
+    internally. Use :class:`pysad.models.SeasonalESD` for the paper's
+    modified-STL plus standard ESD detector.
+
+    Args:
+        subtracted_statistic (str): The statistic to be subtracted for scoring. It is either "mean" or "median". (Default="mean").
         absolute (bool): Whether to output score's absolute value. (Default=True).
     """
 
-    def __init__(self, substracted_statistic="mean", absolute=True):
+    def __init__(self, subtracted_statistic="mean", absolute=True):
         self.absolute = absolute
         self.variance_meter = VarianceMeter()
 
-        if substracted_statistic == "median":
+        if subtracted_statistic == "median":
             self.sub_meter = MedianMeter()
-        elif substracted_statistic == "mean":
+        elif subtracted_statistic == "mean":
             self.sub_meter = AverageMeter()
         else:
-            raise ValueError(
-                "Unknown substracted_statistic value! Please choose median or mean.")
+            raise ValueError("Unknown subtracted_statistic value! Please choose median or mean.")
 
     def fit_partial(self, X, y=None):
         """Fits the model to next instance.
@@ -33,7 +38,8 @@ class StandardAbsoluteDeviation(BaseModel):
         Returns:
             object: Returns the self.
         """
-        assert len(X) == 1  # Only for time series
+        if len(X) != 1:
+            raise ValueError("StandardAbsoluteDeviation supports univariate inputs.")
 
         self.variance_meter.update(X)
         self.sub_meter.update(X)
@@ -50,7 +56,7 @@ class StandardAbsoluteDeviation(BaseModel):
             float: The anomalousness score of the input instance.
         """
         sub = self.sub_meter.get()
-        dev = self.variance_meter.get()**0.5
+        dev = self.variance_meter.get() ** 0.5
 
         score = (X - sub) / (dev + 1e-10)
 

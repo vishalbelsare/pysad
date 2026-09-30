@@ -1,13 +1,12 @@
 # Import modules.
+import numpy as np
 from sklearn.utils import shuffle
+
 from pysad.evaluation import AUROCMetric
 from pysad.models import Inqmad
-from pysad.utils import ArrayStreamer
 from pysad.transform.postprocessing import RunningAveragePostprocessor
 from pysad.transform.preprocessing import InstanceUnitNormScaler
-from pysad.utils import Data
-from tqdm import tqdm
-import numpy as np
+from pysad.utils import ArrayStreamer, Data
 
 # This example demonstrates the usage of the most modules in PySAD framework.
 if __name__ == "__main__":
@@ -20,12 +19,16 @@ if __name__ == "__main__":
 
     iterator = ArrayStreamer(shuffle=False)  # Init streamer to simulate streaming data.
 
-    model = Inqmad(input_shape=X_all.shape[1], dim_x=128, gamma=100)  # Init xStream anomaly detection model.
+    model = Inqmad(
+        input_shape=X_all.shape[1], dim_x=128, gamma=10
+    )  # Init Inqmad anomaly detection model.
     preprocessor = InstanceUnitNormScaler()  # Init normalizer.
-    postprocessor = RunningAveragePostprocessor(window_size=5)  # Init running average postprocessor.
+    postprocessor = RunningAveragePostprocessor(
+        window_size=5
+    )  # Init running average postprocessor.
     auroc = AUROCMetric()  # Init area under receiver-operating- characteristics curve metric.
 
-    for X, y in tqdm(iterator.iter(X_all[100:], y_all[100:])):  # Stream data.
+    for X, y in iterator.iter(X_all[100:], y_all[100:]):  # Stream data.
         X = preprocessor.fit_transform_partial(X)  # Fit preprocessor to and transform the instance.
 
         score = model.fit_score_partial(X)  # Fit model to and score the instance.

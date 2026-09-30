@@ -1,28 +1,85 @@
+import copy
+import sys
+import types
+from importlib.metadata import version
+
+import numpy as np
+from sklearn.utils import check_random_state
+
 from pysad.core.base_model import BaseModel
+
+
+def _import_rrcf():
+    """Imports rrcf without pkg_resources, which setuptools>=82 no longer ships.
+
+    rrcf only calls ``pkg_resources.get_distribution("rrcf").version``, so a stub serving that call is
+    registered for the duration of the import and removed afterwards.
+    """
+    if "pkg_resources" in sys.modules:
+        from rrcf import rrcf
+
+        return rrcf
+
+    stub = types.ModuleType("pkg_resources")
+    stub.get_distribution = lambda name: types.SimpleNamespace(version=version(name))
+    sys.modules["pkg_resources"] = stub
+    try:
+        from rrcf import rrcf
+    finally:
+        if sys.modules.get("pkg_resources") is stub:
+            del sys.modules["pkg_resources"]
+
+    return rrcf
 
 
 class RobustRandomCutForest(BaseModel):
     """Robust Random Cut Forest model :cite:`guha2016robust`. The implementation uses `rrcf library <https://github.com/kLabUM/rrcf>`_ :cite:`bartos_2019_rrcf`.
 
-        Args:
-            num_trees (int): The number of trees.
-            shingle_size (int): The shingle size (Default=4).
-            tree_size (int): The tree size (Default=256).
+    Args:
+        num_trees (int): The number of trees.
+        shingle_size (int): The shingle size (Default=4).
+        tree_size (int): The tree size (Default=256).
+        random_state (int, np.random.RandomState or None): Seed or random number generator for the cuts of the trees, which all share it. None draws from NumPy's global random state, which `pysad.utils.fix_seed` seeds (Default=None).
     """
 
-    def __init__(self, num_trees=4, shingle_size=4, tree_size=256):
-        from rrcf import rrcf
+    def __init__(self, num_trees=4, shingle_size=4, tree_size=256, random_state=None):
+        rrcf = _import_rrcf()
 
         self.tree_size = tree_size
         self.shingle_size = shingle_size
         self.num_trees = num_trees
+        self.random_state = random_state
+
+        # A seed is turned into one generator shared by all trees, since trees seeded alike would cut alike.
+        # None is passed on as is, so that rrcf draws from the ``numpy.random`` module.
+        rng = None if random_state is None else check_random_state(random_state)
 
         self.forest = []
         for _ in range(self.num_trees):
-            tree = rrcf.RCTree()
+            tree = rrcf.RCTree(random_state=rng)
             self.forest.append(tree)
 
         self.index = 0
+
+    def __getstate__(self):
+        # rrcf.RCTree keeps a reference to the ``numpy.random`` module as its random number generator,
+        # which cannot be pickled. Trees are shallow-copied without that reference and it is restored on load.
+        state = self.__dict__.copy()
+        state["forest"] = []
+        for tree in self.forest:
+            if tree.rng is np.random:
+                tree = copy.copy(tree)
+                tree.rng = None
+            state["forest"].append(tree)
+
+        return state
+
+    def __setstate__(self, state):
+        for tree in state["forest"]:
+            if tree.rng is None:
+                tree.rng = np.random
+
+        self.__dict__.update(state)
 
     def fit_partial(self, X, y=None):
         """Fits the model to next instance.

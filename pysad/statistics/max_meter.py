@@ -1,15 +1,19 @@
+from __future__ import annotations
+
 import math
 from heapq import heappush
-from pysad.core.base_statistic import UnivariateStatistic
+
 import numpy as np
+
+from pysad.core.base_statistic import UnivariateStatistic
 
 
 class MaxMeter(UnivariateStatistic):
     """The statistic that keeps track of the maximum value.
 
-        Attrs:
-            max (float): The maximum value.
-            lst (list[float]): The list of values that are used to update the statistic. It is necessary for windowing operations.
+    Attributes:
+        max (float): The maximum value.
+        lst (list[float]): The list of values that are used to update the statistic. It is necessary for windowing operations.
     """
 
     def __init__(self):
@@ -17,7 +21,7 @@ class MaxMeter(UnivariateStatistic):
 
         self.lst = []
 
-    def update(self, num):
+    def update(self, num: float) -> MaxMeter:
         """Updates the statistic with the value for a timestep.
 
         Args:
@@ -34,8 +38,8 @@ class MaxMeter(UnivariateStatistic):
 
         return self
 
-    def remove(self, num):
-        """Updates the statistic by removing particular value. This method
+    def remove(self, num: float) -> MaxMeter:
+        """Updates the statistic by removing a particular value.
 
         Args:
             num (float): The value to be removed.
@@ -53,8 +57,8 @@ class MaxMeter(UnivariateStatistic):
 
         return self
 
-    def get(self):
-        """ Method to obtain the tracked statistic.
+    def get(self) -> float:
+        """Method to obtain the tracked statistic.
 
         Returns:
             float: The statistic.

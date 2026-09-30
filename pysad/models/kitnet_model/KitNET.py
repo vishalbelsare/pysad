@@ -1,4 +1,5 @@
 import numpy as np
+from sklearn.utils import check_random_state
 from . import dA as AE
 from . import corClust as CC
 
@@ -17,7 +18,8 @@ class KitNET:
     #feature_map: One may optionally provide a feature map instead of learning one. The map must be a list,
     #           where the i-th entry contains a list of the feature indices to be assingned to the i-th autoencoder in the ensemble.
     #           For example, [[2,5,3],[4,0,1],[6,7]]
-    def __init__(self,n,max_autoencoder_size=10,FM_grace_period=None,AD_grace_period=10000,learning_rate=0.1,hidden_ratio=0.75, feature_map = None):
+    #random_state: seed or numpy RandomState for the initial weights of the autoencoders, which all share it. None draws from NumPy's global random state.
+    def __init__(self,n,max_autoencoder_size=10,FM_grace_period=None,AD_grace_period=10000,learning_rate=0.1,hidden_ratio=0.75, feature_map = None, random_state=None):
         # Parameters:
         self.AD_grace_period = AD_grace_period
         if FM_grace_period is None:
@@ -31,42 +33,41 @@ class KitNET:
         self.lr = learning_rate
         self.hr = hidden_ratio
         self.n = n
+        self.random_state = random_state
 
         # Variables
         self.n_trained = 0 # the number of training instances so far
         self.n_executed = 0 # the number of executed instances so far
         self.v = feature_map
-        if self.v is None:
-            print("Feature-Mapper: train-mode, Anomaly-Detector: off-mode")
-        else:
-            self.__createAD__()
-            print("Feature-Mapper: execute-mode, Anomaly-Detector: train-mode")
         self.FM = CC.corClust(self.n) #incremental feature cluatering for the feature mapping process
-        self.ensembleLayer = []
+        self.ensembleLayer = [] #the autoencoders are built on the first instance they train on (see train)
         self.outputLayer = None
 
     #If FM_grace_period+AM_grace_period has passed, then this function executes KitNET on x. Otherwise, this function learns from x.
     #x: a numpy array of length n
     #Note: KitNET automatically performs 0-1 normalization on all attributes.
     def process(self,x):
-        if self.n_trained > self.FM_grace_period + self.AD_grace_period: #If both the FM and AD are in execute-mode
+        if not self.inGrace(): #If both the FM and AD are in execute-mode
             return self.execute(x)
         else:
             self.train(x)
             return 0.0
 
+    #whether KitNET still learns from the next instance, i.e. FM_grace_period+AD_grace_period has not passed yet
+    def inGrace(self):
+        return self.n_trained < self.FM_grace_period + self.AD_grace_period
+
     #force train KitNET on x
     #returns the anomaly score of x during training (do not use for alerting)
     def train(self,x):
-        if self.n_trained <= self.FM_grace_period and self.v is None: #If the FM is in train-mode, and the user has not supplied a feature mapping
+        if self.n_trained < self.FM_grace_period and self.v is None: #If the FM is in train-mode, and the user has not supplied a feature mapping
             #update the incremetnal correlation matrix
             self.FM.update(x)
-            if self.n_trained == self.FM_grace_period: #If the feature mapping should be instantiated
-                self.v = self.FM.cluster(self.m)
-                self.__createAD__()
-                print("The Feature-Mapper found a mapping: "+str(self.n)+" features to "+str(len(self.v))+" autoencoders.")
-                print("Feature-Mapper: execute-mode, Anomaly-Detector: train-mode")
         else: #train
+            if self.outputLayer is None: #Build the autoencoders on the first instance they train on, so that none is executed before it has seen a range to normalize with
+                if self.v is None:
+                    self.v = self.FM.cluster(self.m)
+                self.__createAD__()
             ## Ensemble Layer
             S_l1 = np.zeros(len(self.ensembleLayer))
             for a in range(len(self.ensembleLayer)):
@@ -75,14 +76,12 @@ class KitNET:
                 S_l1[a] = self.ensembleLayer[a].train(xi)
             ## OutputLayer
             self.outputLayer.train(S_l1)
-            if self.n_trained == self.AD_grace_period+self.FM_grace_period:
-                print("Feature-Mapper: execute-mode, Anomaly-Detector: exeute-mode")
         self.n_trained += 1
 
     #force execute KitNET on x
     def execute(self,x):
-        if self.v is None:
-            raise RuntimeError('KitNET Cannot execute x, because a feature mapping has not yet been learned or provided. Try running process(x) instead.')
+        if self.outputLayer is None:
+            raise RuntimeError('KitNET Cannot execute x, because its autoencoders have not trained on an instance yet. Try running process(x) instead.')
         else:
             self.n_executed += 1
             ## Ensemble Layer
@@ -95,14 +94,17 @@ class KitNET:
             return self.outputLayer.execute(S_l1)
 
     def __createAD__(self):
+        # Resolved here, when the autoencoders are built, so that None follows the global state at that time.
+        rng = check_random_state(self.random_state)
+
         # construct ensemble layer
         for map in self.v:
             params = AE.dA_params(n_visible=len(map), n_hidden=0, lr=self.lr, corruption_level=0, gracePeriod=0, hiddenRatio=self.hr)
-            self.ensembleLayer.append(AE.dA(params))
+            self.ensembleLayer.append(AE.dA(params, rng))
 
         # construct output layer
         params = AE.dA_params(len(self.v), n_hidden=0, lr=self.lr, corruption_level=0, gracePeriod=0, hiddenRatio=self.hr)
-        self.outputLayer = AE.dA(params)
+        self.outputLayer = AE.dA(params, rng)
 
 # Copyright (c) 2017 Yisroel Mirsky
 #

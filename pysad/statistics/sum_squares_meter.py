@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 from pysad.core.base_statistic import UnivariateStatistic
 
 
 class SumSquaresMeter(UnivariateStatistic):
     """The statistic that keeps track of the sum of squares. This class is useful to calculate and used in VarianceMeter.
 
-    Attrs:
+    Attributes:
         sum_squares (float): The sum of squares of values.
         num_items (int): The number of items that are used to update the statistic.
     """
@@ -13,7 +15,7 @@ class SumSquaresMeter(UnivariateStatistic):
         self.sum_squares = 0.0
         self.num_items = 0
 
-    def update(self, num):
+    def update(self, num: float) -> SumSquaresMeter:
         """Updates the statistic with the value for a timestep.
 
         Args:
@@ -27,8 +29,8 @@ class SumSquaresMeter(UnivariateStatistic):
 
         return self
 
-    def remove(self, num):
-        """Updates the statistic by removing particular value. This method
+    def remove(self, num: float) -> SumSquaresMeter:
+        """Updates the statistic by removing a particular value.
 
         Args:
             num (float): The value to be removed.
@@ -41,8 +43,8 @@ class SumSquaresMeter(UnivariateStatistic):
 
         return self
 
-    def get(self):
-        """ Method to obtain the tracked statistic.
+    def get(self) -> float:
+        """Method to obtain the tracked statistic.
 
         Returns:
             float: The statistic.

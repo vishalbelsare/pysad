@@ -38,7 +38,7 @@ class dA_params:
         self.hiddenRatio = hiddenRatio
 
 class dA:
-    def __init__(self, params):
+    def __init__(self, params, rng):
         self.params = params
 
         if self.params.hiddenRatio is not None:
@@ -49,7 +49,7 @@ class dA:
         self.norm_min = numpy.ones((self.params.n_visible,)) * numpy.inf
         self.n = 0
 
-        self.rng = numpy.random.RandomState(1234)
+        self.rng = rng
 
         a = 1. / self.params.n_visible
         self.W = numpy.array(self.rng.uniform(  # initialize W uniformly
@@ -59,8 +59,20 @@ class dA:
 
         self.hbias = numpy.zeros(self.params.n_hidden)  # initialize h bias 0
         self.vbias = numpy.zeros(self.params.n_visible)  # initialize v bias 0
-        self.W_prime = self.W.T
 
+    # The decoder weights are the encoder weights transposed. A property rather than a stored view,
+    # which pickling and deepcopy would turn into a separate copy that stops following W.
+    @property
+    def W_prime(self):
+        return self.W.T
+
+    # 0-1 normalize with the ranges seen in training. An attribute that has been constant so far is only
+    # shifted, as scikit-learn's MinMaxScaler does with constant features, since dividing by the 1e-16
+    # guard alone would scale any later change in it by 1e16.
+    def normalize(self, x):
+        scale = self.norm_max - self.norm_min + 0.0000000000000001
+        scale[self.norm_max == self.norm_min] = 1.0
+        return (x - self.norm_min) / scale
 
     def get_corrupted_input(self, input, corruption_level):
         assert corruption_level < 1
@@ -83,8 +95,7 @@ class dA:
         self.norm_max[x > self.norm_max] = x[x > self.norm_max]
         self.norm_min[x < self.norm_min] = x[x < self.norm_min]
 
-        # 0-1 normalize
-        x = (x - self.norm_min) / (self.norm_max - self.norm_min + 0.0000000000000001)
+        x = self.normalize(x)
 
         if self.params.corruption_level > 0.0:
             tilde_x = self.get_corrupted_input(x, self.params.corruption_level)
@@ -115,8 +126,7 @@ class dA:
         if self.n < self.params.gracePeriod:
             return 0.0
         else:
-            # 0-1 normalize
-            x = (x - self.norm_min) / (self.norm_max - self.norm_min + 0.0000000000000001)
+            x = self.normalize(x)
             z = self.reconstruct(x)
             rmse = numpy.sqrt(((x - z) ** 2).mean()) #MSE
             return rmse

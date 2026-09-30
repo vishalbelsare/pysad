@@ -3,34 +3,44 @@ from pysad.models.kitnet_model import KitNET as kit
 
 
 class KitNet(BaseModel):
-    """KitNET is a lightweight online anomaly detection algorithm based on an ensemble of autoencoders :cite:`mirsky2018kitsune`. This model directly uses the implementation from `KitNET-py <https://github.com/ymirsky/KitNET-py>`_.
+    """KitNET is a lightweight online anomaly detection algorithm based on an ensemble of autoencoders :cite:`mirsky2018kitsune`. This model uses the implementation from `KitNET-py <https://github.com/ymirsky/KitNET-py>`_ with two changes: the 0-1 normalization only shifts an input that was constant in training, which KitNET-py divides by 1e-16, and the feature mapping learns from ``grace_feature_mapping`` instances instead of one more.
 
     Args:
-        num_features (int): The number of features in your input dataset.
         max_size_ae (int): The maximum size of any autoencoder in the ensemble layer (Default=10).
-        grace_feature_mapping (int): The number of instances the network will learn from before producing anomaly scores (Default=None).
-        grace_anomaly_detector (int): The number of instances which will be taken to learn the feature mapping. If 'None', then FM_grace_period=AM_grace_period. (Default=50000).
+        grace_feature_mapping (int): The number of instances used to learn the feature mapping. If ``None``, the feature mapping and anomaly detector grace periods are equal (Default=None).
+        grace_anomaly_detector (int): The number of instances used to train the autoencoders after the feature mapping is learned (Default=50000).
         learning_rate (float): The default stochastic gradient descent learning rate for all autoencoders in the KitNET instance (Default=0.1).
         hidden_ratio (float): The default ratio of hidden to visible neurons. E.g., 0.75 will cause roughly a 25% compression in the hidden layer (Default=0.75).
+        random_state (int, np.random.RandomState or None): Seed or random number generator for the initial weights of the autoencoders, which all share it. None draws from NumPy's global random state, which `pysad.utils.fix_seed` seeds (Default=None).
     """
 
     def __init__(
-            self,
-            max_size_ae=10,
-            grace_feature_mapping=None,
-            grace_anomaly_detector=50000,
-            learning_rate=0.1,
-            hidden_ratio=0.75):
+        self,
+        max_size_ae=10,
+        grace_feature_mapping=None,
+        grace_anomaly_detector=50000,
+        learning_rate=0.1,
+        hidden_ratio=0.75,
+        random_state=None,
+    ):
 
         self.grace_feature_mapping = grace_feature_mapping
         self.hidden_ratio = hidden_ratio
         self.learning_rate = learning_rate
         self.max_size_ae = max_size_ae
         self.grace_anomaly_detector = grace_anomaly_detector
+        self.random_state = random_state
         self.to_init = True
 
     def fit_partial(self, X, y=None):
-        """Fits the model to next instance. Simply, adds the instance to the window.
+        """Fits the model to the next instance.
+
+        The first ``grace_feature_mapping`` instances learn the feature mapping;
+        the next ``grace_anomaly_detector`` instances train the autoencoders.
+        Until the autoencoders have trained on an instance, :meth:`score_partial` returns ``0.0``.
+        While the autoencoders are still training, it returns real scores from
+        partially trained autoencoders, so they are unreliable for alerting.
+        After both grace periods the model stops learning and only scores.
 
         Args:
             X (np.float64 array of shape (num_features,)): The instance to fit.
@@ -47,9 +57,13 @@ class KitNet(BaseModel):
                 self.grace_feature_mapping,
                 self.grace_anomaly_detector,
                 self.learning_rate,
-                self.hidden_ratio)
+                self.hidden_ratio,
+                random_state=self.random_state,
+            )
             self.to_init = False
-        self.model.process(X)
+        # After both grace periods KitNET only scores, which is score_partial's job.
+        if self.model.inGrace():
+            self.model.train(X)
 
         return self
 
@@ -62,9 +76,9 @@ class KitNet(BaseModel):
         Returns:
             float: The anomalousness score of the input instance.
         """
-        if self.model.v is None:
-            # The feature map is not discovered (i.e., still the grace period),
-            # thus, KitNet gives an error.
+        if self.model.outputLayer is None:
+            # KitNET builds its autoencoders on the first instance after the feature mapping, and
+            # there is nothing to score with before that.
             return 0.0
         else:
             return self.model.execute(X)

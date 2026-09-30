@@ -1,17 +1,19 @@
 import math
+
+import numpy as np
+
 from pysad.core.base_postprocessor import BasePostprocessor
 from pysad.statistics.average_meter import AverageMeter
 from pysad.statistics.running_statistic import RunningStatistic
 from pysad.statistics.variance_meter import VarianceMeter
-import numpy as np
 
 
 class GaussianTailProbabilityCalibrator(BasePostprocessor):
     """Assuming that the scores follow normal distribution, this class provides an interface to convert the scores into probabilities via Q-function, i.e., the tail function of Gaussian distribution :cite:`ahmad2017unsupervised`.
 
-        Args:
-            running_statistics (bool): Whether to calculate the mean and variance through running window. The window size is defined by the `window_size` parameter.
-            window_size (int): The size of window for running average and std. Ignored if `running_statistics` parameter is False.
+    Args:
+        running_statistics (bool): Whether to calculate the mean and variance through running window. The window size is defined by the `window_size` parameter.
+        window_size (int): The size of window for running average and std. Ignored if `running_statistics` parameter is False.
     """
 
     def __init__(self, running_statistics=True, window_size=6400):
@@ -23,7 +25,7 @@ class GaussianTailProbabilityCalibrator(BasePostprocessor):
             self.var_meter = RunningStatistic(VarianceMeter, self.window_size)
         else:
             self.avg_meter = AverageMeter()
-            self.var_meter = RunningStatistic(VarianceMeter, self.window_size)
+            self.var_meter = VarianceMeter()
 
     def fit_partial(self, score):
         """Fits particular (next) timestep's score to train the postprocessor.

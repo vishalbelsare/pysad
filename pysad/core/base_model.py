@@ -1,14 +1,63 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from pysad.utils import _iterate
+from collections.abc import Callable
+from functools import wraps
+from typing import Any
+
 import numpy as np
+
+from pysad.utils import _iterate
+
+
+def _to_float_score(score: float | np.number | np.ndarray | list[float]) -> float:
+    """Converts a single-instance score to a Python float.
+
+    Models may compute a score as a Python number, a NumPy scalar or a one-element array. This helper maps all of them to a plain ``float``.
+
+    Args:
+        score (float, np.number or array-like with one element): The score to convert.
+
+    Returns:
+        float: The score as a Python float.
+    """
+    score = np.asarray(score)
+    if score.size != 1:
+        raise ValueError(
+            f"Expected a single score for one instance, got an array of shape {score.shape}."
+        )
+
+    return float(score.reshape(-1)[0])
+
+
+def _returns_float_score(method: Callable[..., Any]) -> Callable[..., float]:
+    """Wraps a single-instance scoring method so that it returns a Python float."""
+
+    @wraps(method)
+    def wrapper(self: BaseModel, *args: Any, **kwargs: Any) -> float:
+        return _to_float_score(method(self, *args, **kwargs))
+
+    # Marks the method as wrapped, so that __init_subclass__ doesn't wrap it twice.
+    wrapper._returns_float_score = True  # type: ignore[attr-defined]
+    return wrapper
 
 
 class BaseModel(ABC):
     """Abstract base class for the models.
+
+    Single-instance methods (`score_partial` and `fit_score_partial`) always return a Python `float`, and batch methods (`score` and `fit_score`) return a `np.float64` array of shape (num_instances,). Subclasses may compute a score as a NumPy scalar or a one-element array; it is converted to a `float` automatically.
     """
 
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+
+        for name in ("score_partial", "fit_score_partial"):
+            method = cls.__dict__.get(name)
+            if callable(method) and not getattr(method, "_returns_float_score", False):
+                setattr(cls, name, _returns_float_score(method))
+
     @abstractmethod
-    def fit_partial(self, X, y=None):
+    def fit_partial(self, X: np.ndarray, y: int | None = None) -> BaseModel:
         """Fits the model to next instance.
 
         Args:
@@ -21,7 +70,7 @@ class BaseModel(ABC):
         pass
 
     @abstractmethod
-    def score_partial(self, X):
+    def score_partial(self, X: np.ndarray) -> float:
         """Scores the anomalousness of the next instance.
 
         Args:
@@ -32,7 +81,7 @@ class BaseModel(ABC):
         """
         pass
 
-    def fit_score_partial(self, X, y=None):
+    def fit_score_partial(self, X: np.ndarray, y: int | None = None) -> float:
         """Applies fit_partial and score_partial to the next instance, respectively.
 
         Args:
@@ -42,9 +91,9 @@ class BaseModel(ABC):
         Returns:
             float: The anomalousness score of the input instance.
         """
-        return self.fit_partial(X, y).score_partial(X)
+        return _to_float_score(self.fit_partial(X, y).score_partial(X))
 
-    def fit(self, X, y=None):
+    def fit(self, X: np.ndarray, y: np.ndarray | None = None) -> BaseModel:
         """Fits the model to all instances in order.
 
         Args:
@@ -59,8 +108,8 @@ class BaseModel(ABC):
 
         return self
 
-    def score(self, X):
-        """Scores all instaces via score_partial iteratively.
+    def score(self, X: np.ndarray) -> np.ndarray:
+        """Scores all instances via score_partial iteratively.
 
         Args:
             X (np.float64 array of shape (num_instances, num_features)): The instances in order to score.
@@ -70,12 +119,11 @@ class BaseModel(ABC):
         """
         y_pred = np.empty(X.shape[0], dtype=np.float64)
         for i, (xi, _) in enumerate(_iterate(X)):
-            score = self.score_partial(xi)
-            y_pred[i] = np.asarray(score).item() if np.asarray(score).ndim > 0 else score
+            y_pred[i] = _to_float_score(self.score_partial(xi))
 
         return y_pred
 
-    def fit_score(self, X, y=None):
+    def fit_score(self, X: np.ndarray, y: np.ndarray | None = None) -> np.ndarray:
         """This helper method applies fit_score_partial to all instances in order.
 
         Args:
@@ -85,12 +133,8 @@ class BaseModel(ABC):
         Returns:
             np.float64 array of shape (num_instances,): The anomalousness scores of the instances in order.
         """
-        y_pred = np.zeros(X.shape[0], dtype=np.float64)
+        y_pred = np.empty(X.shape[0], dtype=np.float64)
         for i, (xi, yi) in enumerate(_iterate(X, y)):
-            # Extract scalar value to avoid deprecation warning
-            score = self.fit_score_partial(xi, yi)
-            if hasattr(score, 'item'):
-                score = score.item()
-            y_pred[i] = score
+            y_pred[i] = _to_float_score(self.fit_score_partial(xi, yi))
 
         return y_pred

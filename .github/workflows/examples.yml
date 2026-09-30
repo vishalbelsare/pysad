@@ -1,0 +1,49 @@
+name: examples
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "pysad/**"
+      - "examples/**"
+      - "tests/test_examples.py"
+      - "pyproject.toml"
+      - ".github/workflows/examples.yml"
+  pull_request:
+    paths:
+      - "pysad/**"
+      - "examples/**"
+      - "tests/test_examples.py"
+      - "pyproject.toml"
+      - ".github/workflows/examples.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  # PR runs share a group per PR (so stale pushes get cancelled); every push gets its own group.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  examples:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+      - name: Install dependencies
+        run: |
+          # uv prefers wheels by default, matching pip's --prefer-binary.
+          uv pip install --system --group runtime --group test -e .
+      - name: Run examples
+        run: pytest -m examples -n auto

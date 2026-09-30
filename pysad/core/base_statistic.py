@@ -1,18 +1,21 @@
-from abc import abstractmethod, ABC
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
 
 
-class BaseStatistic(ABC):
-    """Abstact base class for the statistics.
-    """
+# No abstract methods on purpose: UnivariateStatistic declares them, and RunningStatistic
+# delegates them to the statistic it wraps.
+class BaseStatistic(ABC):  # noqa: B024
+    """Abstact base class for the statistics."""
+
     pass
 
 
 class UnivariateStatistic(BaseStatistic):
-    """Abstract base class for univariate statistics.
-    """
+    """Abstract base class for univariate statistics."""
 
     @abstractmethod
-    def update(self, num):
+    def update(self, num: float) -> UnivariateStatistic:
         """Updates the statistic with the value for a timestep.
 
         Args:
@@ -24,8 +27,8 @@ class UnivariateStatistic(BaseStatistic):
         pass
 
     @abstractmethod
-    def get(self):
-        """ Method to obtain the tracked statistic.
+    def get(self) -> float:
+        """Method to obtain the tracked statistic.
 
         Returns:
             float: The statistic.
@@ -33,8 +36,8 @@ class UnivariateStatistic(BaseStatistic):
         pass
 
     @abstractmethod
-    def remove(self, num):
-        """Updates the statistic by removing particular value. This method
+    def remove(self, num: float) -> UnivariateStatistic:
+        """Updates the statistic by removing a particular value.
 
         Args:
             num (float): The value to be removed.
